@@ -49,6 +49,8 @@ paths:
   /v1/sign:
     post:
       summary: Sign a transaction, optionally submitting it
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -85,6 +87,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Refused" }
+        "422": { $ref: "#/components/responses/KeyReused" }
         "501":
           description: "`submit` was requested but no RPC is configured."
           content:
@@ -100,6 +103,8 @@ paths:
         group account, as returned by simulateTransaction. Each signer applies
         its policy to the invocation tree. With an RPC configured the
         coordinator reads the latest ledger itself and ignores `latest_ledger`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -130,9 +135,21 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Refused" }
+        "422": { $ref: "#/components/responses/KeyReused" }
         "502": { $ref: "#/components/responses/Upstream" }
         "503": { $ref: "#/components/responses/NotEnoughSigners" }
 components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Up to 128 characters. A repeat of the same request with the same key
+        within 24 hours gets the first response back, marked with
+        `Idempotent-Replayed: true`, instead of a second signing session.
+        Server errors are not remembered, so they can be retried.
+      schema: { type: string, maxLength: 128 }
   securitySchemes:
     bearer:
       type: http
@@ -191,6 +208,11 @@ components:
                 additionalProperties:
                   type: array
                   items: { type: string }
+    KeyReused:
+      description: The Idempotency-Key was already used with a different request body.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     Upstream:
       description: A signer or the RPC failed, or an aggregate did not verify.
       content:

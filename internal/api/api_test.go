@@ -11,6 +11,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Use-Tessera/tessera-coordinator/internal/api"
@@ -221,5 +222,79 @@ func TestOpenAPICoversEveryRoute(t *testing.T) {
 		if block == nil || !strings.Contains(block[1], "    "+method+":") {
 			t.Errorf("api/openapi.yaml does not describe %s %s", r[1], path)
 		}
+	}
+}
+
+func signWithKey(t *testing.T, srv *httptest.Server, key, envelope string) (int, map[string]any, bool) {
+	t.Helper()
+	body := `{"envelope": "` + envelope + `"}`
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/sign", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Idempotency-Key", key)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Error(err)
+		return 0, nil, false
+	}
+	defer resp.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&out)
+	return resp.StatusCode, out, resp.Header.Get("Idempotent-Replayed") == "true"
+}
+
+func TestIdempotencyKeysReplayOneSession(t *testing.T) {
+	srv, tr := server(t)
+	code, first, replayed := signWithKey(t, srv, "pay-42", tr.Envelope)
+	if code != http.StatusOK || replayed {
+		t.Fatalf("status %d replayed %v: %v", code, replayed, first)
+	}
+	code, again, replayed := signWithKey(t, srv, "pay-42", tr.Envelope)
+	if code != http.StatusOK || !replayed || again["session"] != first["session"] {
+		t.Fatalf("retry ran a new session: %v vs %v", again, first)
+	}
+	// The same key with a different request is a client bug.
+	if code, out, _ := signWithKey(t, srv, "pay-42", "AAAA"); code != http.StatusUnprocessableEntity {
+		t.Fatalf("status %d: %v", code, out)
+	}
+	// A different key is a different request.
+	if _, other, replayed := signWithKey(t, srv, "pay-43", tr.Envelope); replayed || other["session"] == first["session"] {
+		t.Fatal("distinct keys must not share a session")
+	}
+}
+
+func TestConcurrentRetriesShareOneSession(t *testing.T) {
+	srv, tr := server(t)
+	sessions := make(chan any, 8)
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, out, _ := signWithKey(t, srv, "burst", tr.Envelope)
+			sessions <- out["session"]
+		}()
+	}
+	wg.Wait()
+	close(sessions)
+	seen := map[any]bool{}
+	for s := range sessions {
+		seen[s] = true
+	}
+	if len(seen) != 1 {
+		t.Fatalf("%d sessions for one key", len(seen))
+	}
+}
+
+func TestRefusalsReplayButServerErrorsDoNot(t *testing.T) {
+	srv, tr := server(t, testsigner.Behaviour{Refuse: []string{"too much"}})
+	signWithKey(t, srv, "refused", tr.Envelope)
+	if code, _, replayed := signWithKey(t, srv, "refused", tr.Envelope); code != http.StatusForbidden || !replayed {
+		t.Fatalf("a refusal is an answer and should replay: %d %v", code, replayed)
+	}
+
+	down, tr := server(t, testsigner.Behaviour{Offline: true})
+	signWithKey(t, down, "retry-me", tr.Envelope)
+	if code, _, replayed := signWithKey(t, down, "retry-me", tr.Envelope); code != http.StatusServiceUnavailable || replayed {
+		t.Fatalf("a 503 must be retried, not replayed: %d %v", code, replayed)
 	}
 }

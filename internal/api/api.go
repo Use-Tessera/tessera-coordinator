@@ -22,6 +22,7 @@ type Server struct {
 	Token       string         // required bearer token; empty disables auth
 	Log         *slog.Logger
 	Metrics     Metrics
+	Idempotency Idempotency // zero value: keys kept 24 h, at most 10,000
 }
 
 // Handler returns the routes.
@@ -31,14 +32,22 @@ type Server struct {
 //	GET  /v1/group
 //	POST /v1/sign       {"envelope": "<base64 XDR>", "submit": false}
 //	POST /v1/authorize  {"auth_entry": "<base64 XDR>", "latest_ledger": 0}
+//
+// Both POST routes honour an Idempotency-Key header.
 func (s *Server) Handler() http.Handler {
+	if s.Idempotency.TTL == 0 {
+		s.Idempotency.TTL = 24 * time.Hour
+	}
+	if s.Idempotency.Max == 0 {
+		s.Idempotency.Max = 10_000
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /v1/group", s.auth(s.group))
-	mux.HandleFunc("POST /v1/sign", s.auth(s.sign))
-	mux.HandleFunc("POST /v1/authorize", s.auth(s.authorize))
+	mux.HandleFunc("POST /v1/sign", s.auth(s.Idempotency.wrap(s.sign)))
+	mux.HandleFunc("POST /v1/authorize", s.auth(s.Idempotency.wrap(s.authorize)))
 	mux.Handle("GET /metrics", &s.Metrics)
 	routes := map[string]bool{"/healthz": true, "/metrics": true, "/v1/group": true, "/v1/sign": true, "/v1/authorize": true}
 	return s.observe(mux, routes)
