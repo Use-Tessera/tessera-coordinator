@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/Use-Tessera/tessera-coordinator/internal/api"
@@ -161,6 +162,39 @@ func TestAuthorizeValidatesRequests(t *testing.T) {
 	} {
 		if code, out := call(t, srv, "POST", "/v1/authorize", token, c.body); code != c.want {
 			t.Errorf("%s: status %d, want %d (%v)", name, code, c.want, out)
+		}
+	}
+}
+
+func TestRequestsAreTaggedAndCounted(t *testing.T) {
+	srv, tr := server(t)
+	req, _ := http.NewRequest("POST", srv.URL+"/v1/sign", strings.NewReader(`{"envelope": "`+tr.Envelope+`"}`))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("X-Request-ID", "trace-123")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.Header.Get("X-Request-ID") != "trace-123" {
+		t.Fatal("request id not echoed")
+	}
+	call(t, srv, "GET", "/v1/group", "", nil)
+	call(t, srv, "GET", "/v1/../../etc/passwd", "", nil)
+
+	resp, err = http.Get(srv.URL + "/metrics")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	for _, want := range []string{
+		`tessera_coordinator_requests_total{route="/v1/sign",status="200"} 1`,
+		`tessera_coordinator_requests_total{route="/v1/group",status="401"} 1`,
+		`route="other"`,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("metrics lack %s:\n%s", want, body)
 		}
 	}
 }

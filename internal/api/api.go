@@ -21,11 +21,13 @@ type Server struct {
 	Submitter   *submit.Client // nil disables ?submit
 	Token       string         // required bearer token; empty disables auth
 	Log         *slog.Logger
+	Metrics     Metrics
 }
 
 // Handler returns the routes.
 //
 //	GET  /healthz
+//	GET  /metrics
 //	GET  /v1/group
 //	POST /v1/sign       {"envelope": "<base64 XDR>", "submit": false}
 //	POST /v1/authorize  {"auth_entry": "<base64 XDR>", "latest_ledger": 0}
@@ -37,7 +39,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/group", s.auth(s.group))
 	mux.HandleFunc("POST /v1/sign", s.auth(s.sign))
 	mux.HandleFunc("POST /v1/authorize", s.auth(s.authorize))
-	return mux
+	mux.Handle("GET /metrics", &s.Metrics)
+	routes := map[string]bool{"/healthz": true, "/metrics": true, "/v1/group": true, "/v1/sign": true, "/v1/authorize": true}
+	return s.observe(mux, routes)
 }
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
