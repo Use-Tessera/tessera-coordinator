@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func write(t *testing.T, body string) string {
@@ -43,6 +44,9 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	if c.Passphrase() != "Test SDF Network ; September 2015" {
 		t.Errorf("passphrase = %q", c.Passphrase())
 	}
+	if c.SessionTimeout.Duration != 20*time.Second {
+		t.Errorf("session_timeout = %v", c.SessionTimeout)
+	}
 	if len(c.Signers) != 2 || c.Signers[1].TokenEnv != "SIGNER_2_TOKEN" {
 		t.Errorf("signers = %+v", c.Signers)
 	}
@@ -62,6 +66,8 @@ func TestLoadRejects(t *testing.T) {
 		"no audit log":   {strings.Replace(valid, `audit_log = "audit.jsonl"`, "", 1), "audit_log is required"},
 		"one signer":     {"network = \"testnet\"\naudit_log = \"a\"\n[[signer]]\nurl = \"x\"\n", "two [[signer]]"},
 		"malformed toml": {"network = ", ""},
+		"bad timeout":    {"session_timeout = \"soon\"\n" + valid, "soon"},
+		"long timeout":   {"session_timeout = \"1h\"\n" + valid, "between 0 and 5m"},
 	} {
 		_, err := Load(write(t, c.body))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
@@ -80,5 +86,12 @@ func TestEnv(t *testing.T) {
 	}
 	if _, err := Env("TESSERA_TEST_UNSET_TOKEN"); err == nil {
 		t.Fatal("a named but empty variable must fail")
+	}
+}
+
+func TestSessionTimeout(t *testing.T) {
+	c, err := Load(write(t, "session_timeout = \"45s\"\n"+valid))
+	if err != nil || c.SessionTimeout.Duration != 45*time.Second {
+		t.Fatal(c, err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -17,12 +18,27 @@ type Signer struct {
 
 // Config is coordinator.toml.
 type Config struct {
-	Listen      string   `toml:"listen"`
-	Network     string   `toml:"network"`
-	RPC         string   `toml:"rpc"`
-	AuditLog    string   `toml:"audit_log"`
-	APITokenEnv string   `toml:"api_token_env"`
-	Signers     []Signer `toml:"signer"`
+	Listen      string `toml:"listen"`
+	Network     string `toml:"network"`
+	RPC         string `toml:"rpc"`
+	AuditLog    string `toml:"audit_log"`
+	APITokenEnv string `toml:"api_token_env"`
+	// SessionTimeout bounds one signing session, both rounds included.
+	SessionTimeout Duration `toml:"session_timeout"`
+	Signers        []Signer `toml:"signer"`
+}
+
+// Duration is a TOML string such as "20s".
+type Duration struct{ time.Duration }
+
+// UnmarshalText parses a Go duration.
+func (d *Duration) UnmarshalText(b []byte) error {
+	v, err := time.ParseDuration(string(b))
+	if err != nil {
+		return err
+	}
+	d.Duration = v
+	return nil
 }
 
 var networks = map[string]string{
@@ -56,6 +72,11 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("%s: at least two [[signer]] entries are required", path)
 	case c.AuditLog == "":
 		return nil, fmt.Errorf("%s: audit_log is required", path)
+	case c.SessionTimeout.Duration < 0 || c.SessionTimeout.Duration > 5*time.Minute:
+		return nil, fmt.Errorf("%s: session_timeout must be between 0 and 5m", path)
+	}
+	if c.SessionTimeout.Duration == 0 {
+		c.SessionTimeout.Duration = 20 * time.Second
 	}
 	if c.Listen == "" {
 		c.Listen = "127.0.0.1:7400"

@@ -86,7 +86,11 @@ func setup(ctx context.Context, path string) (*config.Config, *coordinator.Coord
 		return nil, nil, err
 	}
 	co, err := coordinator.New(ctx, cfg.Passphrase(), clients, log)
-	return cfg, co, err
+	if err != nil {
+		return nil, nil, err
+	}
+	co.Timeout = cfg.SessionTimeout.Duration
+	return cfg, co, nil
 }
 
 func serve(args []string) error {

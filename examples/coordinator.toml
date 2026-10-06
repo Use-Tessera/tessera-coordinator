@@ -2,7 +2,8 @@
 listen = "127.0.0.1:7400"
 network = "testnet"
 
-# Stellar RPC used when callers ask for submission. Optional.
+# Stellar RPC, used to submit transactions and to read the latest ledger for
+# /v1/authorize. Optional.
 rpc = "https://soroban-testnet.stellar.org"
 
 # Hash-chained log of every signing attempt. Relative to this file.
@@ -10,6 +11,9 @@ audit_log = "audit.jsonl"
 
 # Bearer token applications must send. Unset only for local experiments.
 api_token_env = "TESSERA_API_TOKEN"
+
+# Longest one signing session may take, both rounds included. Default 20s.
+# session_timeout = "20s"
 
 # Every signer of the group. The threshold and account are learned from them.
 [[signer]]
