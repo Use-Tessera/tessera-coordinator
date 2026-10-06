@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -195,6 +197,29 @@ func TestRequestsAreTaggedAndCounted(t *testing.T) {
 	} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("metrics lack %s:\n%s", want, body)
+		}
+	}
+}
+
+// Every route in Handler's doc comment must be described in api/openapi.yaml.
+func TestOpenAPICoversEveryRoute(t *testing.T) {
+	spec, err := os.ReadFile("../../api/openapi.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile("api.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := regexp.MustCompile(`(?m)^//\t(GET|POST) +(/\S+)`).FindAllStringSubmatch(string(src), -1)
+	if len(routes) < 5 {
+		t.Fatalf("found only %d routes in api.go", len(routes))
+	}
+	for _, r := range routes {
+		method, path := strings.ToLower(r[1]), r[2]
+		block := regexp.MustCompile(`(?m)^  ` + regexp.QuoteMeta(path) + `:\n((?:    .*\n|\n)*)`).FindStringSubmatch(string(spec))
+		if block == nil || !strings.Contains(block[1], "    "+method+":") {
+			t.Errorf("api/openapi.yaml does not describe %s %s", r[1], path)
 		}
 	}
 }

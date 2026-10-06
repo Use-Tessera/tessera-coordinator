@@ -1,0 +1,203 @@
+openapi: 3.1.0
+info:
+  title: Tessera coordinator
+  version: "1"
+  description: |
+    Runs FROST threshold signing sessions across a Tessera group's signers.
+    The coordinator holds no key material and verifies every aggregate
+    signature itself before returning it.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: http://127.0.0.1:7400
+security:
+  - bearer: []
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      security: []
+      responses:
+        "200":
+          description: The process is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+  /metrics:
+    get:
+      summary: Prometheus counters by route and status
+      security: []
+      responses:
+        "200":
+          description: Prometheus text exposition format.
+          content:
+            text/plain: {}
+  /v1/group:
+    get:
+      summary: The group this coordinator serves
+      responses:
+        "200":
+          description: Group account, threshold, network and signers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Group" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /v1/sign:
+    post:
+      summary: Sign a transaction, optionally submitting it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [envelope]
+              properties:
+                envelope:
+                  type: string
+                  description: Unsigned TransactionEnvelope, base64 XDR, with the group account as source.
+                submit:
+                  type: boolean
+                  default: false
+                  description: Submit through the configured RPC and wait for the outcome.
+      responses:
+        "200":
+          description: Signed; with `submit`, also applied.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, hash, envelope, signers]
+                properties:
+                  session: { type: string }
+                  hash: { $ref: "#/components/schemas/Hash" }
+                  envelope: { type: string, description: Signed envelope, base64 XDR. }
+                  signers: { $ref: "#/components/schemas/Identifiers" }
+                  submission:
+                    type: object
+                    properties:
+                      status: { type: string, enum: [SUCCESS, FAILED] }
+                      ledger: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Refused" }
+        "501":
+          description: "`submit` was requested but no RPC is configured."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "502": { $ref: "#/components/responses/Upstream" }
+        "503": { $ref: "#/components/responses/NotEnoughSigners" }
+  /v1/authorize:
+    post:
+      summary: Sign a Soroban authorization entry
+      description: |
+        Signs a SorobanAuthorizationEntry with address credentials for the
+        group account, as returned by simulateTransaction. Each signer applies
+        its policy to the invocation tree. With an RPC configured the
+        coordinator reads the latest ledger itself and ignores `latest_ledger`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [auth_entry]
+              properties:
+                auth_entry: { type: string, description: SorobanAuthorizationEntry, base64 XDR. }
+                latest_ledger:
+                  type: integer
+                  minimum: 1
+                  description: The network's latest ledger. Required when no RPC is configured.
+      responses:
+        "200":
+          description: The entry with its signature filled in.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session, hash, auth_entry, signers, latest_ledger]
+                properties:
+                  session: { type: string }
+                  hash: { $ref: "#/components/schemas/Hash" }
+                  auth_entry: { type: string, description: Signed entry, base64 XDR. }
+                  signers: { $ref: "#/components/schemas/Identifiers" }
+                  latest_ledger: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Refused" }
+        "502": { $ref: "#/components/responses/Upstream" }
+        "503": { $ref: "#/components/responses/NotEnoughSigners" }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: The token named by `api_token_env`.
+  schemas:
+    Hash:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+      description: Transaction hash or authorization payload hash, hex.
+    Identifiers:
+      type: array
+      items: { type: string }
+      description: FROST identifiers of the signers that took part.
+    Group:
+      type: object
+      required: [account, threshold, network, signers]
+      properties:
+        account: { type: string, description: The group's G... account. }
+        threshold: { type: integer }
+        network: { type: string, description: Network passphrase. }
+        signers:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string }
+              identifier: { type: string }
+              policy_sha256: { type: string }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+  responses:
+    BadRequest:
+      description: The body, envelope or entry is malformed, or the entry does not authorize the group.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Missing or wrong bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Refused:
+      description: At least one signer's policy refused; every refusing signer's reasons are listed.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error: { type: string }
+              refusals:
+                type: object
+                additionalProperties:
+                  type: array
+                  items: { type: string }
+    Upstream:
+      description: A signer or the RPC failed, or an aggregate did not verify.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotEnoughSigners:
+      description: Fewer than threshold signers answered round 1.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
