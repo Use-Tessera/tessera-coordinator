@@ -54,6 +54,7 @@ than `threshold` are reachable.
 | Route | Body / result |
 |---|---|
 | `POST /v1/sign` | `{"envelope": "<base64 XDR>", "submit": false}` → `{"hash", "envelope", "signers", "session"}`; with `submit`, also `"submission": {"status", "ledger"}` |
+| `POST /v1/authorize` | `{"auth_entry": "<base64 XDR>", "latest_ledger": 0}` → `{"hash", "auth_entry", "signers", "session", "latest_ledger"}` |
 | `GET /v1/group` | Account, threshold, network, and each signer's identifier and policy hash |
 | `GET /healthz` | Liveness |
 
@@ -61,11 +62,27 @@ than `threshold` are reachable.
 Refusals return 403 with every refusing signer's reasons:
 
 ```json
-{"error": "policy refused the transaction",
+{"error": "policy refused the request",
  "refusals": {"0100…": ["spends 150 native, more than per_transaction 100"]}}
 ```
 
-Other errors: 400 (bad envelope), 503 (not enough signers), 502 (signer or RPC failure).
+Other errors: 400 (bad envelope or entry), 503 (not enough signers), 502 (signer or RPC failure).
+
+### Authorizing contract calls
+
+When the group is not the transaction source, say an agent pays through a
+contract that calls `token.transfer(group, …)`, Soroban needs the group's
+signature on a `SorobanAuthorizationEntry` instead. Pass the entry from
+`simulateTransaction` to `/v1/authorize`: each signer decodes the invocation
+tree, applies its `[[contract]]`, `[[token]]` and `[auth]` limits, and signs
+the payload hash only if they hold. The coordinator recomputes that hash,
+checks the returned entry is unchanged apart from a
+`[{public_key, signature}]` that verifies under the group key, and returns it
+ready to put back into the transaction.
+
+Signers bound an authorization's lifetime by the latest ledger. With `rpc`
+configured the coordinator reads it from the network and ignores the caller's
+`latest_ledger`.
 
 ## Audit log
 
@@ -82,15 +99,15 @@ ok: 2 records, chain intact
 
 | Package | Responsibility |
 |---|---|
-| `internal/coordinator` | Group discovery, rounds, signer selection, independent signature verification |
+| `internal/coordinator` | Group discovery, rounds, signer selection, independent verification of transactions and authorization entries |
 | `internal/signer` | `tessera/signer/v1` client |
 | `internal/audit` | Hash-chained append-only log |
-| `internal/submit` | `sendTransaction` + `getTransaction` polling |
+| `internal/submit` | `sendTransaction` with `TRY_AGAIN_LATER` resends, `getTransaction` polling, `getLatestLedger` |
 | `internal/api` | HTTP routes, auth, error mapping |
 | `cmd/tessera-coordinator` | `serve`, `pay`, `audit verify` |
 
 Tests replay a real 2-of-3 FROST run recorded by the signer's test suite
-(`testdata/transcript.json`), so the coordinator's checks run against genuine
+(`testdata/transcript.json`, one transaction and one authorization entry), so the coordinator's checks run against genuine
 signatures. CI keeps the transcript identical to upstream.
 
 ## Contributing
