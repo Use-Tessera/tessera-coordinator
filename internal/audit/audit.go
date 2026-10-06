@@ -21,8 +21,9 @@ type Record struct {
 	Seq       uint64              `json:"seq"`
 	Time      time.Time           `json:"time"`
 	Session   string              `json:"session"`
-	TxHash    string              `json:"tx_hash"`
-	Outcome   string              `json:"outcome"` // signed | refused | failed
+	Kind      string              `json:"kind,omitempty"` // transaction | authorization
+	TxHash    string              `json:"tx_hash"`        // or the authorization payload hash
+	Outcome   string              `json:"outcome"`        // signed | refused | failed
 	Signers   []string            `json:"signers,omitempty"`
 	Refusals  map[string][]string `json:"refusals,omitempty"`
 	Error     string              `json:"error,omitempty"`

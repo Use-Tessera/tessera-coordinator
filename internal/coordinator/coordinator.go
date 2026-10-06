@@ -153,7 +153,7 @@ func (co *Coordinator) Sign(ctx context.Context, envelope string) (*Result, erro
 	if err == nil {
 		res = &Result{Session: session, Hash: hex.EncodeToString(hash[:]), Envelope: signed, Signers: ids}
 	}
-	co.record(session, hash, ids, err)
+	co.record(session, "transaction", hash, ids, err)
 	return res, err
 }
 
@@ -273,11 +273,11 @@ func (co *Coordinator) check(hashHex, sigHex, signedEnvelope string, want [32]by
 	return ErrInvalidAggregate
 }
 
-func (co *Coordinator) record(session string, hash [32]byte, signers []string, err error) {
+func (co *Coordinator) record(session, kind string, hash [32]byte, signers []string, err error) {
 	if co.Audit == nil {
 		return
 	}
-	r := audit.Record{Time: time.Now().UTC(), Session: session, TxHash: hex.EncodeToString(hash[:])}
+	r := audit.Record{Time: time.Now().UTC(), Session: session, Kind: kind, TxHash: hex.EncodeToString(hash[:])}
 	var refused *RefusedError
 	switch {
 	case err == nil:
