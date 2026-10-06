@@ -95,3 +95,13 @@ func TestSessionTimeout(t *testing.T) {
 		t.Fatal(c, err)
 	}
 }
+
+func TestExampleConfigLoads(t *testing.T) {
+	c, err := Load("../../examples/coordinator.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Signers) != 3 || c.APITokenEnv == "" || c.RPC == "" {
+		t.Fatalf("%+v", c)
+	}
+}
