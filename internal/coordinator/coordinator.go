@@ -137,19 +137,43 @@ func (co *Coordinator) Sign(ctx context.Context, envelope string) (*Result, erro
 	ctx, cancel := context.WithTimeout(ctx, co.Timeout)
 	defer cancel()
 
-	res, err := co.sign(ctx, session, envelope, hash)
-	co.record(session, hash, res, err)
+	signed, ids, err := co.run(ctx, session, job{
+		round2: func(ctx context.Context, c *signer.Client, commitments map[string]string) (string, error) {
+			return c.Round2(ctx, session, envelope, commitments)
+		},
+		aggregate: func(ctx context.Context, c *signer.Client, commitments, shares map[string]string) (string, error) {
+			agg, err := c.Aggregate(ctx, envelope, commitments, shares)
+			if err != nil {
+				return "", err
+			}
+			return agg.Envelope, co.check(agg.Hash, agg.Signature, agg.Envelope, hash)
+		},
+	})
+	var res *Result
+	if err == nil {
+		res = &Result{Session: session, Hash: hex.EncodeToString(hash[:]), Envelope: signed, Signers: ids}
+	}
+	co.record(session, hash, ids, err)
 	return res, err
 }
 
-func (co *Coordinator) sign(ctx context.Context, session, envelope string, hash [32]byte) (*Result, error) {
+// job is what differs between signing a transaction and an authorization entry.
+type job struct {
+	round2    func(ctx context.Context, c *signer.Client, commitments map[string]string) (share string, err error)
+	aggregate func(ctx context.Context, c *signer.Client, commitments, shares map[string]string) (signed string, err error)
+}
+
+// run relays both rounds and returns the signed artefact and the participants.
+func (co *Coordinator) run(ctx context.Context, session string, j job) (string, []string, error) {
 	chosen, err := co.round1(ctx, session)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	commitments := map[string]string{}
+	ids := make([]string, 0, len(chosen))
 	for _, c := range chosen {
 		commitments[c.member.Info.Identifier] = c.commitments
+		ids = append(ids, c.member.Info.Identifier)
 	}
 
 	shares := map[string]string{}
@@ -161,7 +185,7 @@ func (co *Coordinator) sign(ctx context.Context, session, envelope string, hash 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			share, err := c.member.Client.Round2(ctx, session, envelope, commitments)
+			share, err := j.round2(ctx, c.member.Client, commitments)
 			mu.Lock()
 			defer mu.Unlock()
 			var refused *signer.RefusedError
@@ -177,24 +201,20 @@ func (co *Coordinator) sign(ctx context.Context, session, envelope string, hash 
 	}
 	wg.Wait()
 	if len(refusals) > 0 {
-		return nil, &RefusedError{Refusals: refusals}
+		return "", nil, &RefusedError{Refusals: refusals}
 	}
 	if len(failures) > 0 {
-		return nil, fmt.Errorf("round 2: %w", errors.Join(failures...))
+		return "", nil, fmt.Errorf("round 2: %w", errors.Join(failures...))
 	}
 
-	agg, err := chosen[0].member.Client.Aggregate(ctx, envelope, commitments, shares)
+	signed, err := j.aggregate(ctx, chosen[0].member.Client, commitments, shares)
+	if errors.Is(err, ErrInvalidAggregate) {
+		return "", nil, err
+	}
 	if err != nil {
-		return nil, fmt.Errorf("aggregate: %w", err)
+		return "", nil, fmt.Errorf("aggregate: %w", err)
 	}
-	if err := co.check(agg.Hash, agg.Signature, agg.Envelope, hash); err != nil {
-		return nil, err
-	}
-	ids := make([]string, 0, len(chosen))
-	for _, c := range chosen {
-		ids = append(ids, c.member.Info.Identifier)
-	}
-	return &Result{Session: session, Hash: hex.EncodeToString(hash[:]), Envelope: agg.Envelope, Signers: ids}, nil
+	return signed, ids, nil
 }
 
 // round1 asks every member for commitments and keeps the first Threshold, by identifier.
@@ -253,7 +273,7 @@ func (co *Coordinator) check(hashHex, sigHex, signedEnvelope string, want [32]by
 	return ErrInvalidAggregate
 }
 
-func (co *Coordinator) record(session string, hash [32]byte, res *Result, err error) {
+func (co *Coordinator) record(session string, hash [32]byte, signers []string, err error) {
 	if co.Audit == nil {
 		return
 	}
@@ -261,7 +281,7 @@ func (co *Coordinator) record(session string, hash [32]byte, res *Result, err er
 	var refused *RefusedError
 	switch {
 	case err == nil:
-		r.Outcome, r.Signers = "signed", res.Signers
+		r.Outcome, r.Signers = "signed", signers
 	case errors.As(err, &refused):
 		r.Outcome, r.Refusals = "refused", refused.Refusals
 	default:
