@@ -63,6 +63,13 @@ The full schema is in [`api/openapi.yaml`](api/openapi.yaml). `/v1/*` requires
 `Authorization: Bearer $api_token_env` when configured; every response carries
 an `X-Request-ID`, echoed from the request when given.
 
+Send an `Idempotency-Key` with every signing request your client may retry.
+Signers count spend when they approve, so a retried payment without one runs a
+second session and uses the daily limit twice. With a key, a repeat within 24
+hours gets the first response back (`Idempotent-Replayed: true`), a concurrent
+duplicate waits for the first, and reusing a key for a different request is a
+422.
+
 Refusals return 403 with every refusing signer's reasons:
 
 ```json
@@ -86,7 +93,9 @@ ready to put back into the transaction.
 
 Signers bound an authorization's lifetime by the latest ledger. With `rpc`
 configured the coordinator reads it from the network and ignores the caller's
-`latest_ledger`.
+`latest_ledger`. Signers configured with their own `rpc` go further and ignore
+the coordinator's value too, so not even a compromised coordinator can stretch
+an authorization's validity.
 
 ## Audit log
 

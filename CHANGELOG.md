@@ -21,6 +21,8 @@ All notable changes to this project are documented here. The format follows
   network rather than trusted from the caller.
 - Hash-chained audit log of every attempt, with the kind of payload signed,
   and `tessera-coordinator audit verify`.
+- `Idempotency-Key` on both signing routes, so a client retry cannot run a
+  second session and spend a daily limit twice.
 - Request IDs, structured access logs and `GET /metrics`.
 - `session_timeout` setting; read, write and idle limits per connection.
 - OpenAPI 3.1 description in `api/openapi.yaml`, checked against the routes
