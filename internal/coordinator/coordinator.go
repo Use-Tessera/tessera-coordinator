@@ -222,7 +222,7 @@ func (co *Coordinator) round1(ctx context.Context, session string) ([]commitment
 	}
 	wg.Wait()
 	if len(got) < co.Threshold {
-		return nil, fmt.Errorf("%w: %d of %d needed: %v", ErrNotEnoughSigners, len(got), co.Threshold, errors.Join(failures...))
+		return nil, fmt.Errorf("%w: %d of %d needed: %w", ErrNotEnoughSigners, len(got), co.Threshold, errors.Join(failures...))
 	}
 	sort.Slice(got, func(i, j int) bool { return got[i].member.Info.Identifier < got[j].member.Info.Identifier })
 	return got[:co.Threshold], nil
