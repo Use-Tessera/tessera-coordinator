@@ -25,6 +25,8 @@ linters:
     rules:
       - path: _test\.go
         linters: [gosec, noctx]
+      - path: internal/testsigner/
+        linters: [gosec, noctx]
 
 formatters:
   enable:
