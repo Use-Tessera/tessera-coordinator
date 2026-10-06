@@ -1,0 +1,25 @@
+# tessera-coordinator configuration.
+listen = "127.0.0.1:7400"
+network = "testnet"
+
+# Stellar RPC used when callers ask for submission. Optional.
+rpc = "https://soroban-testnet.stellar.org"
+
+# Hash-chained log of every signing attempt. Relative to this file.
+audit_log = "audit.jsonl"
+
+# Bearer token applications must send. Unset only for local experiments.
+api_token_env = "TESSERA_API_TOKEN"
+
+# Every signer of the group. The threshold and account are learned from them.
+[[signer]]
+url = "https://signer-1.example.org"
+token_env = "TESSERA_SIGNER_TOKEN_1"
+
+[[signer]]
+url = "https://signer-2.example.org"
+token_env = "TESSERA_SIGNER_TOKEN_2"
+
+[[signer]]
+url = "https://signer-3.example.org"
+token_env = "TESSERA_SIGNER_TOKEN_3"
