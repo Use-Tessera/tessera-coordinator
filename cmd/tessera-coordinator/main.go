@@ -7,11 +7,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -31,6 +34,7 @@ const usage = `tessera-coordinator runs threshold signing sessions for a Tessera
 Usage:
   tessera-coordinator serve  [--config coordinator.toml]
   tessera-coordinator pay    [--config coordinator.toml] --to G... --amount 1 [--horizon URL] [--submit]
+  tessera-coordinator authorize [--config coordinator.toml] [--latest-ledger N] < entry.b64
   tessera-coordinator audit  verify <audit.jsonl>
   tessera-coordinator version
 `
@@ -46,6 +50,8 @@ func main() {
 		err = serve(os.Args[2:])
 	case "pay":
 		err = pay(os.Args[2:])
+	case "authorize":
+		err = authorize(os.Args[2:], os.Stdin)
 	case "audit":
 		err = auditCmd(os.Args[2:])
 	case "version":
@@ -178,6 +184,46 @@ func pay(args []string) error {
 	if outcome.Status != "SUCCESS" {
 		return errors.New("transaction failed on chain")
 	}
+	return nil
+}
+
+// authorize signs one base64 SorobanAuthorizationEntry read from stdin and
+// prints the signed entry.
+func authorize(args []string, in io.Reader) error {
+	fs := flag.NewFlagSet("authorize", flag.ExitOnError)
+	path := fs.String("config", "coordinator.toml", "config file")
+	latest := fs.Uint("latest-ledger", 0, "the network's latest ledger; read from rpc when configured")
+	_ = fs.Parse(args)
+
+	raw, err := io.ReadAll(io.LimitReader(in, 1<<20))
+	if err != nil {
+		return err
+	}
+	entry := strings.TrimSpace(string(raw))
+	if entry == "" {
+		return errors.New("pipe a base64 SorobanAuthorizationEntry on stdin")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cfg, co, err := setup(ctx, *path)
+	if err != nil {
+		return err
+	}
+	ledger := uint32(min(*latest, math.MaxUint32)) //nolint:gosec // G115: clamped above
+	if cfg.RPC != "" {
+		if ledger, err = submit.New(cfg.RPC).LatestLedger(ctx); err != nil {
+			return err
+		}
+	}
+	if ledger == 0 {
+		return errors.New("--latest-ledger is required when no rpc is configured")
+	}
+	res, err := co.SignAuth(ctx, entry, ledger)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "signed authorization %s at ledger %d: signers %s\n", res.Hash, ledger, strings.Join(res.Signers, ", "))
+	fmt.Println(res.AuthEntry)
 	return nil
 }
 
