@@ -60,6 +60,16 @@ func TestDuplicateIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestTryAgainLaterIsRetried(t *testing.T) {
+	c, sent := fakeRPC(t, []string{"TRY_AGAIN_LATER", "TRY_AGAIN_LATER", "PENDING"}, 0, "SUCCESS")
+	if out, err := c.Submit(context.Background(), "env", "hash"); err != nil || out.Status != "SUCCESS" {
+		t.Fatal(out, err)
+	}
+	if sent.Load() != 3 {
+		t.Fatalf("sent %d times, want 3", sent.Load())
+	}
+}
+
 func TestRejectionCarriesTheResult(t *testing.T) {
 	c, _ := fakeRPC(t, []string{"ERROR"}, 0, "")
 	_, err := c.Submit(context.Background(), "env", "hash")

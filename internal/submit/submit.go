@@ -34,8 +34,18 @@ func (c *Client) Submit(ctx context.Context, envelope, hash string) (*Outcome, e
 		Status         string `json:"status"`
 		ErrorResultXDR string `json:"errorResultXdr"`
 	}
-	if err := c.call(ctx, "sendTransaction", map[string]string{"transaction": envelope}, &sent); err != nil {
-		return nil, err
+	for attempt := 0; ; attempt++ {
+		if err := c.call(ctx, "sendTransaction", map[string]string{"transaction": envelope}, &sent); err != nil {
+			return nil, err
+		}
+		// TRY_AGAIN_LATER means the node's queue is full; the transaction
+		// was not accepted, so sending it again is safe.
+		if sent.Status != "TRY_AGAIN_LATER" || attempt == maxResends {
+			break
+		}
+		if err := sleep(ctx, c.Poll); err != nil {
+			return nil, fmt.Errorf("resending %s: %w", hash, err)
+		}
 	}
 	switch sent.Status {
 	case "PENDING", "DUPLICATE":
@@ -53,11 +63,23 @@ func (c *Client) Submit(ctx context.Context, envelope, hash string) (*Outcome, e
 		if got.Status == "SUCCESS" || got.Status == "FAILED" {
 			return &Outcome{Status: got.Status, Ledger: got.Ledger}, nil
 		}
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("waiting for %s: %w", hash, ctx.Err())
-		case <-time.After(c.Poll):
+		if err := sleep(ctx, c.Poll); err != nil {
+			return nil, fmt.Errorf("waiting for %s: %w", hash, err)
 		}
+	}
+}
+
+// maxResends bounds how often a TRY_AGAIN_LATER answer is retried.
+const maxResends = 10
+
+func sleep(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
 	}
 }
 
