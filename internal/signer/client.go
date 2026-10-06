@@ -34,6 +34,13 @@ type Aggregate struct {
 	Envelope  string `json:"envelope"`
 }
 
+// AuthAggregate is POST /v1/aggregate/auth's response.
+type AuthAggregate struct {
+	Hash      string `json:"hash"`
+	Signature string `json:"signature"`
+	AuthEntry string `json:"auth_entry"`
+}
+
 // RefusedError means the signer's policy rejected the transaction.
 type RefusedError struct {
 	Signer     string
@@ -93,6 +100,27 @@ func (c *Client) Aggregate(ctx context.Context, envelope string, commitments, sh
 	var out Aggregate
 	body := map[string]any{"envelope": envelope, "commitments": commitments, "shares": shares}
 	if err := c.do(ctx, http.MethodPost, "/v1/aggregate", body, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// Round2Auth asks for a signature share over a Soroban authorization entry.
+// latestLedger bounds how long the signer lets the authorization stay valid.
+func (c *Client) Round2Auth(ctx context.Context, session, entry string, latestLedger uint32, commitments map[string]string) (string, error) {
+	var out struct {
+		Share string `json:"share"`
+	}
+	body := map[string]any{"session": session, "auth_entry": entry, "latest_ledger": latestLedger, "commitments": commitments}
+	err := c.do(ctx, http.MethodPost, "/v1/round2/auth", body, &out)
+	return out.Share, err
+}
+
+// AggregateAuth combines shares into a signed authorization entry.
+func (c *Client) AggregateAuth(ctx context.Context, entry string, commitments, shares map[string]string) (*AuthAggregate, error) {
+	var out AuthAggregate
+	body := map[string]any{"auth_entry": entry, "commitments": commitments, "shares": shares}
+	if err := c.do(ctx, http.MethodPost, "/v1/aggregate/auth", body, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil
