@@ -12,6 +12,7 @@ import (
 
 	"github.com/Use-Tessera/tessera-coordinator/internal/api"
 	"github.com/Use-Tessera/tessera-coordinator/internal/coordinator"
+	"github.com/Use-Tessera/tessera-coordinator/internal/submit"
 	"github.com/Use-Tessera/tessera-coordinator/internal/testsigner"
 )
 
@@ -108,5 +109,58 @@ func TestTooFewSignersIs503(t *testing.T) {
 	srv, tr := server(t, testsigner.Behaviour{Offline: true})
 	if code, out := call(t, srv, "POST", "/v1/sign", token, map[string]any{"envelope": tr.Envelope}); code != http.StatusServiceUnavailable {
 		t.Fatalf("status %d: %v", code, out)
+	}
+}
+
+func authServer(t *testing.T, rpcLedger uint32) (*httptest.Server, testsigner.Transcript) {
+	t.Helper()
+	tr := testsigner.Load(t, "../../testdata/transcript.json")
+	co, err := coordinator.New(context.Background(), tr.Network, testsigner.AuthGroup(t, tr), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &api.Server{Coordinator: co, Token: token, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	if rpcLedger > 0 {
+		rpc := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_ = json.NewEncoder(w).Encode(map[string]any{"result": map[string]any{"sequence": rpcLedger}})
+		}))
+		t.Cleanup(rpc.Close)
+		s.Submitter = submit.New(rpc.URL)
+	}
+	srv := httptest.NewServer(s.Handler())
+	t.Cleanup(srv.Close)
+	return srv, tr
+}
+
+func TestAuthorizeSignsTheEntry(t *testing.T) {
+	srv, tr := authServer(t, 0)
+	code, out := call(t, srv, "POST", "/v1/authorize", token, map[string]any{"auth_entry": tr.Auth.Entry, "latest_ledger": tr.Auth.LatestLedger})
+	if code != http.StatusOK || out["auth_entry"] != tr.Auth.Aggregate.AuthEntry || out["hash"] != tr.Auth.Aggregate.Hash {
+		t.Fatalf("status %d: %v", code, out)
+	}
+}
+
+func TestAuthorizeTrustsRPCOverTheCaller(t *testing.T) {
+	// The caller understates the ledger; the coordinator asks RPC instead.
+	srv, tr := authServer(t, 1_000)
+	code, out := call(t, srv, "POST", "/v1/authorize", token, map[string]any{"auth_entry": tr.Auth.Entry, "latest_ledger": 5})
+	if code != http.StatusOK || out["latest_ledger"].(float64) != 1_000 {
+		t.Fatalf("status %d: %v", code, out)
+	}
+}
+
+func TestAuthorizeValidatesRequests(t *testing.T) {
+	srv, tr := authServer(t, 0)
+	for name, c := range map[string]struct {
+		body any
+		want int
+	}{
+		"no entry":         {map[string]any{"latest_ledger": 1000}, http.StatusBadRequest},
+		"no latest ledger": {map[string]any{"auth_entry": tr.Auth.Entry}, http.StatusBadRequest},
+		"not xdr":          {map[string]any{"auth_entry": "AAAA", "latest_ledger": 1000}, http.StatusBadRequest},
+	} {
+		if code, out := call(t, srv, "POST", "/v1/authorize", token, c.body); code != c.want {
+			t.Errorf("%s: status %d, want %d (%v)", name, code, c.want, out)
+		}
 	}
 }

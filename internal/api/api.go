@@ -27,7 +27,8 @@ type Server struct {
 //
 //	GET  /healthz
 //	GET  /v1/group
-//	POST /v1/sign   {"envelope": "<base64 XDR>", "submit": false}
+//	POST /v1/sign       {"envelope": "<base64 XDR>", "submit": false}
+//	POST /v1/authorize  {"auth_entry": "<base64 XDR>", "latest_ledger": 0}
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -35,6 +36,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/group", s.auth(s.group))
 	mux.HandleFunc("POST /v1/sign", s.auth(s.sign))
+	mux.HandleFunc("POST /v1/authorize", s.auth(s.authorize))
 	return mux
 }
 
@@ -98,12 +100,45 @@ func (s *Server) sign(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
+// authorize signs a Soroban authorization entry. With an RPC configured the
+// coordinator reads the latest ledger itself and ignores latest_ledger, so a
+// caller cannot understate it to stretch the signature's lifetime.
+func (s *Server) authorize(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		AuthEntry    string `json:"auth_entry"`
+		LatestLedger uint32 `json:"latest_ledger"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil || req.AuthEntry == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "body must be {\"auth_entry\": \"<base64 XDR>\"}"})
+		return
+	}
+	latest := req.LatestLedger
+	if s.Submitter != nil {
+		seq, err := s.Submitter.LatestLedger(r.Context())
+		if err != nil {
+			writeJSON(w, http.StatusBadGateway, map[string]string{"error": "reading the latest ledger: " + err.Error()})
+			return
+		}
+		latest = seq
+	}
+	if latest == 0 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "latest_ledger is required when no rpc is configured"})
+		return
+	}
+	res, err := s.Coordinator.SignAuth(r.Context(), req.AuthEntry, latest)
+	if err != nil {
+		s.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": res.Session, "hash": res.Hash, "auth_entry": res.AuthEntry, "signers": res.Signers, "latest_ledger": latest})
+}
+
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	var refused *coordinator.RefusedError
 	switch {
 	case errors.As(err, &refused):
-		writeJSON(w, http.StatusForbidden, map[string]any{"error": "policy refused the transaction", "refusals": refused.Refusals})
-	case errors.Is(err, coordinator.ErrBadEnvelope):
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "policy refused the request", "refusals": refused.Refusals})
+	case errors.Is(err, coordinator.ErrBadEnvelope), errors.Is(err, coordinator.ErrBadAuthEntry):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 	case errors.Is(err, coordinator.ErrNotEnoughSigners):
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": err.Error()})
