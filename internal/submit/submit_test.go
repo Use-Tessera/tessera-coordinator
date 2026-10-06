@@ -27,6 +27,8 @@ func fakeRPC(t *testing.T, sends []string, pending int, final string) (*Client, 
 		case "sendTransaction":
 			i := int(sent.Add(1)) - 1
 			result = map[string]string{"status": sends[min(i, len(sends)-1)], "errorResultXdr": "AAAAAAAAAGT////7AAAAAA=="}
+		case "getLatestLedger":
+			result = map[string]any{"id": "ab", "protocolVersion": 23, "sequence": 812350}
 		case "getTransaction":
 			if int(polled.Add(1)) <= pending {
 				result = map[string]string{"status": "NOT_FOUND"}
@@ -84,5 +86,20 @@ func TestSubmitStopsWithTheContext(t *testing.T) {
 	defer cancel()
 	if _, err := c.Submit(ctx, "env", "hash"); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal(err)
+	}
+}
+
+func TestLatestLedger(t *testing.T) {
+	c, _ := fakeRPC(t, []string{"PENDING"}, 0, "SUCCESS")
+	if seq, err := c.LatestLedger(context.Background()); err != nil || seq != 812350 {
+		t.Fatal(seq, err)
+	}
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"result": {}}`))
+	}))
+	defer bad.Close()
+	c.URL = bad.URL
+	if _, err := c.LatestLedger(context.Background()); err == nil {
+		t.Fatal("a response without a sequence must fail")
 	}
 }

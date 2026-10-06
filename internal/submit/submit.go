@@ -69,6 +69,20 @@ func (c *Client) Submit(ctx context.Context, envelope, hash string) (*Outcome, e
 	}
 }
 
+// LatestLedger returns the sequence of the newest ledger the RPC node knows.
+func (c *Client) LatestLedger(ctx context.Context) (uint32, error) {
+	var out struct {
+		Sequence uint32 `json:"sequence"`
+	}
+	if err := c.call(ctx, "getLatestLedger", nil, &out); err != nil {
+		return 0, err
+	}
+	if out.Sequence == 0 {
+		return 0, fmt.Errorf("getLatestLedger: no sequence in response")
+	}
+	return out.Sequence, nil
+}
+
 // maxResends bounds how often a TRY_AGAIN_LATER answer is retried.
 const maxResends = 10
 
