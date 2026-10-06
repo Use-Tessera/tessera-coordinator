@@ -112,7 +112,15 @@ func serve(args []string) error {
 	if cfg.RPC != "" {
 		s.Submitter = submit.New(cfg.RPC)
 	}
-	srv := &http.Server{Addr: cfg.Listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// A signing session plus a submission can take over a minute.
+		WriteTimeout: co.Timeout + 90*time.Second,
+		IdleTimeout:  2 * time.Minute,
+	}
 	go func() {
 		<-ctx.Done()
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
