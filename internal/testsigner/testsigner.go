@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Use-Tessera/tessera-coordinator/internal/signer"
+	"github.com/stellar/go-stellar-sdk/xdr"
 )
 
 // Transcript is testdata/transcript.json.
@@ -28,6 +29,15 @@ type Transcript struct {
 		Share        string `json:"share"`
 	} `json:"signers"`
 	Aggregate signer.Aggregate `json:"aggregate"`
+	Auth      struct {
+		Entry        string `json:"entry"`
+		LatestLedger uint32 `json:"latest_ledger"`
+		Signers      []*struct {
+			Commitments string `json:"commitments"`
+			Share       string `json:"share"`
+		} `json:"signers"`
+		Aggregate signer.AuthAggregate `json:"aggregate"`
+	} `json:"auth"`
 }
 
 // Load reads a transcript file.
@@ -49,13 +59,26 @@ type Behaviour struct {
 	Offline bool     // round 1 fails
 	Refuse  []string // round 2 refuses with these violations
 	BadSig  bool     // aggregate returns a forged signature
+	Tamper  bool     // aggregate/auth returns a validly signed but altered entry
 	Account string   // /v1/info reports this account instead
 }
 
-// Signer starts a fake replaying signer i of the transcript.
+// Signer starts a fake replaying signer i of the transcript's transaction run.
 func Signer(t testing.TB, tr Transcript, i int, b Behaviour) *signer.Client {
 	t.Helper()
+	return start(t, tr, i, b, false)
+}
+
+func start(t testing.TB, tr Transcript, i int, b Behaviour, auth bool) *signer.Client {
+	t.Helper()
 	s := tr.Signers[i]
+	commitments, authShare := s.Commitments, ""
+	if auth {
+		commitments = ""
+		if a := tr.Auth.Signers[i]; a != nil {
+			commitments, authShare = a.Commitments, a.Share
+		}
+	}
 	reply := func(w http.ResponseWriter, status int, v any) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
@@ -70,11 +93,11 @@ func Signer(t testing.TB, tr Transcript, i int, b Behaviour) *signer.Client {
 		reply(w, 200, signer.Info{Protocol: signer.Protocol, Identifier: s.Identifier, Account: account, Threshold: tr.Threshold, Signers: len(tr.Signers), Network: tr.Network, PolicySHA256: s.PolicySHA256})
 	})
 	mux.HandleFunc("POST /v1/round1", func(w http.ResponseWriter, _ *http.Request) {
-		if b.Offline || s.Commitments == "" {
+		if b.Offline || commitments == "" {
 			reply(w, 503, map[string]string{"error": "offline"})
 			return
 		}
-		reply(w, 200, map[string]string{"identifier": s.Identifier, "commitments": s.Commitments})
+		reply(w, 200, map[string]string{"identifier": s.Identifier, "commitments": commitments})
 	})
 	mux.HandleFunc("POST /v1/round2", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -99,6 +122,33 @@ func Signer(t testing.TB, tr Transcript, i int, b Behaviour) *signer.Client {
 		}
 		reply(w, 200, agg)
 	})
+	mux.HandleFunc("POST /v1/round2/auth", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			AuthEntry    string            `json:"auth_entry"`
+			LatestLedger uint32            `json:"latest_ledger"`
+			Commitments  map[string]string `json:"commitments"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if len(b.Refuse) > 0 {
+			reply(w, 403, map[string]any{"error": "policy refused the authorization", "violations": b.Refuse})
+			return
+		}
+		if req.AuthEntry != tr.Auth.Entry || req.LatestLedger != tr.Auth.LatestLedger || len(req.Commitments) != 2 {
+			reply(w, 400, map[string]string{"error": "unexpected request"})
+			return
+		}
+		reply(w, 200, map[string]string{"identifier": s.Identifier, "share": authShare})
+	})
+	mux.HandleFunc("POST /v1/aggregate/auth", func(w http.ResponseWriter, _ *http.Request) {
+		agg := tr.Auth.Aggregate
+		if b.BadSig {
+			agg.Signature = strings.Repeat("ab", 64)
+		}
+		if b.Tamper {
+			agg.AuthEntry = tamper(t, agg.AuthEntry)
+		}
+		reply(w, 200, agg)
+	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return signer.New(srv.URL, "")
@@ -116,6 +166,35 @@ func Group(t testing.TB, tr Transcript, bs ...Behaviour) []*signer.Client {
 			b = bs[i]
 		}
 		out = append(out, Signer(t, tr, i, b))
+	}
+	return out
+}
+
+// AuthGroup is Group for the transcript's authorization-entry run.
+func AuthGroup(t testing.TB, tr Transcript, bs ...Behaviour) []*signer.Client {
+	t.Helper()
+	var out []*signer.Client
+	for i := range tr.Signers {
+		var b Behaviour
+		if i < len(bs) {
+			b = bs[i]
+		}
+		out = append(out, start(t, tr, i, b, true))
+	}
+	return out
+}
+
+// tamper bumps the entry's expiration, keeping the group's signature.
+func tamper(t testing.TB, entry string) string {
+	var e xdr.SorobanAuthorizationEntry
+	if err := xdr.SafeUnmarshalBase64(entry, &e); err != nil {
+		t.Error(err)
+		return entry
+	}
+	e.Credentials.Address.SignatureExpirationLedger += 10_000
+	out, err := xdr.MarshalBase64(e)
+	if err != nil {
+		t.Error(err)
 	}
 	return out
 }
