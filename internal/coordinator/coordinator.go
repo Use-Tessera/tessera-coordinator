@@ -100,7 +100,7 @@ func New(ctx context.Context, passphrase string, clients []*signer.Client, log *
 		co.Members = append(co.Members, Member{Client: clients[i], Info: *info})
 	}
 	if co.Threshold == 0 || len(co.Members) < co.Threshold {
-		return nil, fmt.Errorf("%w: %d of %d reachable, threshold %d: %v", ErrNotEnoughSigners, len(co.Members), len(clients), co.Threshold, errors.Join(errs...))
+		return nil, fmt.Errorf("%w: %d of %d reachable, threshold %d: %w", ErrNotEnoughSigners, len(co.Members), len(clients), co.Threshold, errors.Join(errs...))
 	}
 	raw, err := strkey.Decode(strkey.VersionByteAccountID, co.Account)
 	if err != nil {
@@ -127,11 +127,11 @@ type commitment struct {
 func (co *Coordinator) Sign(ctx context.Context, envelope string) (*Result, error) {
 	var env xdr.TransactionEnvelope
 	if err := xdr.SafeUnmarshalBase64(envelope, &env); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadEnvelope, err)
+		return nil, fmt.Errorf("%w: %w", ErrBadEnvelope, err)
 	}
 	hash, err := network.HashTransactionInEnvelope(env, co.Network)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrBadEnvelope, err)
+		return nil, fmt.Errorf("%w: %w", ErrBadEnvelope, err)
 	}
 	session := newSession()
 	ctx, cancel := context.WithTimeout(ctx, co.Timeout)

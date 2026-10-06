@@ -90,7 +90,7 @@ func (l *Log) Append(r Record) (Record, error) {
 
 // Read loads every record in a log file.
 func Read(path string) ([]Record, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // G304: the operator names the audit log
 	if err != nil {
 		return nil, err
 	}
