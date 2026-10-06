@@ -57,8 +57,12 @@ than `threshold` are reachable.
 | `POST /v1/authorize` | `{"auth_entry": "<base64 XDR>", "latest_ledger": 0}` → `{"hash", "auth_entry", "signers", "session", "latest_ledger"}` |
 | `GET /v1/group` | Account, threshold, network, and each signer's identifier and policy hash |
 | `GET /healthz` | Liveness |
+| `GET /metrics` | Prometheus counters by route and status |
 
-`/v1/*` requires `Authorization: Bearer $api_token_env` when configured.
+The full schema is in [`api/openapi.yaml`](api/openapi.yaml). `/v1/*` requires
+`Authorization: Bearer $api_token_env` when configured; every response carries
+an `X-Request-ID`, echoed from the request when given.
+
 Refusals return 403 with every refusing signer's reasons:
 
 ```json
@@ -104,7 +108,7 @@ ok: 2 records, chain intact
 | `internal/audit` | Hash-chained append-only log |
 | `internal/submit` | `sendTransaction` with `TRY_AGAIN_LATER` resends, `getTransaction` polling, `getLatestLedger` |
 | `internal/api` | HTTP routes, auth, error mapping |
-| `cmd/tessera-coordinator` | `serve`, `pay`, `audit verify` |
+| `cmd/tessera-coordinator` | `serve`, `pay`, `authorize`, `audit verify` |
 
 Tests replay a real 2-of-3 FROST run recorded by the signer's test suite
 (`testdata/transcript.json`, one transaction and one authorization entry), so the coordinator's checks run against genuine
