@@ -37,6 +37,8 @@ That is a real testnet run with one signer offline:
 [`ddfa1079…5009`](https://stellar.expert/explorer/testnet/tx/ddfa10791ce6f24fa1950eee3dd1ae71fa3335c92a58737751c606079bfd5009).
 Reproduce it with [`scripts/testnet-demo.sh`](scripts/testnet-demo.sh).
 
+Testnet is reset every few months, after which these links stop resolving; the script reproduces the whole run on a fresh network.
+
 ## Quick start
 
 ```sh
@@ -44,6 +46,10 @@ go install github.com/Use-Tessera/tessera-coordinator/cmd/tessera-coordinator@la
 cp examples/coordinator.toml .   # list your signers
 tessera-coordinator serve
 ```
+
+Binaries for Linux, macOS and Windows are on
+[Releases](https://github.com/Use-Tessera/tessera-coordinator/releases), and the
+image is `ghcr.io/use-tessera/tessera-coordinator` (amd64 and arm64).
 
 On startup the coordinator asks every signer for its identity and refuses to
 run if they disagree on the group account, threshold or network, or if fewer
