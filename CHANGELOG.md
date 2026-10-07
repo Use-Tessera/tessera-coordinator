@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-07
+
 ### Added
 
 - Threshold signing sessions across `tessera/signer/v1` signers: group
@@ -34,4 +36,5 @@ All notable changes to this project are documented here. The format follows
 
 - Submission resends when RPC answers `TRY_AGAIN_LATER` instead of failing.
 
-[Unreleased]: https://github.com/Use-Tessera/tessera-coordinator/commits/main
+[Unreleased]: https://github.com/Use-Tessera/tessera-coordinator/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Use-Tessera/tessera-coordinator/releases/tag/v0.1.0
