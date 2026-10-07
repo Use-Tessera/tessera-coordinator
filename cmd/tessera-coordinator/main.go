@@ -55,7 +55,7 @@ func main() {
 	case "audit":
 		err = auditCmd(os.Args[2:])
 	case "version":
-		fmt.Println("tessera-coordinator", version)
+		fmt.Println("tessera-coordinator", buildVersion())
 	case "-h", "--help", "help":
 		fmt.Print(usage)
 	default:
