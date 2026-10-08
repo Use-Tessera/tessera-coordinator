@@ -35,7 +35,9 @@ error: policy refused: 01000000: spends 150 native, more than per_transaction 10
 
 That is a real testnet run with one signer offline:
 [`ddfa1079…5009`](https://stellar.expert/explorer/testnet/tx/ddfa10791ce6f24fa1950eee3dd1ae71fa3335c92a58737751c606079bfd5009).
-Reproduce it with [`scripts/testnet-demo.sh`](scripts/testnet-demo.sh).
+Reproduce it with [`scripts/testnet-demo.sh`](scripts/testnet-demo.sh), or with
+Docker in [`examples/compose`](examples/compose/): three signer containers,
+distributed key generation, and a payment with one signer offline.
 
 Testnet is reset every few months, after which these links stop resolving; the script reproduces the whole run on a fresh network.
 
