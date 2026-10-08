@@ -1,0 +1,51 @@
+# Tessera signer policy. Anything not allowed here is refused.
+# Each signer enforces its own copy; a transaction is signed only if at least
+# `threshold` signers approve it.
+
+network = "testnet"
+
+# Highest total fee, in stroops, the signer will pay for one transaction.
+max_fee = 100000
+
+# Transactions must carry time bounds that expire within this many seconds.
+max_validity = 900
+
+[operations]
+allow = ["payment", "invoke_contract"]
+
+# Assets the group may send, in whole units (up to 7 decimals). Payments in
+# unlisted assets are refused.
+[[asset]]
+asset = "native"
+per_transaction = "100"
+per_day = "500"
+
+[[asset]]
+asset = "USDC:GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5"
+per_transaction = "250"
+per_day = "1000"
+
+# Optional. When present, payments may only go to these accounts.
+# [destinations]
+# allow = ["GAIH3ULLFQ4DGSECF2AR555KZ4KNDGEKN4AFI4SU2M7B43MGK3QJZNSR"]
+
+# Contracts the group may call, and which functions. "*" allows all.
+[[contract]]
+id = "CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC"
+functions = ["transfer"]
+
+# SEP-41 tokens whose `transfer` calls are capped like payments. Listing a
+# token also allows its `transfer` function; amounts use the token's decimals.
+# Transfers must move the group's own tokens, and `[destinations]` applies.
+# [[token]]
+# contract = "CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75"
+# per_transaction = "250"
+# per_day = "1000"
+# decimals = 7
+
+# Optional. Allows signing Soroban authorization entries, which let a contract
+# call made by someone else (a relayer, an x402 facilitator) act for the group.
+# Every call in the entry's invocation tree must be allowed above, and the
+# entry must expire within this many ledgers (about 5 s each) of the latest.
+# [auth]
+# max_validity_ledgers = 120

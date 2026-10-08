@@ -1,0 +1,31 @@
+# A 2-of-3 Tessera group on Stellar testnet: three signers and the coordinator.
+# Run ./setup.sh first; see README.md.
+x-signer: &signer
+  image: ghcr.io/use-tessera/tessera-signer:latest
+  user: ${UID_GID:-1000:1000}
+  environment:
+    TESSERA_PASSPHRASE: ${TESSERA_PASSPHRASE:?run ./setup.sh first}
+    TESSERA_TOKEN: ${TESSERA_TOKEN}
+  restart: unless-stopped
+
+services:
+  signer-1:
+    <<: *signer
+    volumes: ["./signer-1:/etc/tessera"]
+  signer-2:
+    <<: *signer
+    volumes: ["./signer-2:/etc/tessera"]
+  signer-3:
+    <<: *signer
+    volumes: ["./signer-3:/etc/tessera"]
+
+  coordinator:
+    image: ghcr.io/use-tessera/tessera-coordinator:latest
+    user: ${UID_GID:-1000:1000}
+    environment:
+      TESSERA_TOKEN: ${TESSERA_TOKEN}
+      TESSERA_API_TOKEN: ${TESSERA_API_TOKEN}
+    volumes: ["./coordinator:/etc/tessera"]
+    ports: ["127.0.0.1:7400:7400"]
+    depends_on: [signer-1, signer-2, signer-3]
+    restart: unless-stopped
