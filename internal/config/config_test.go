@@ -52,6 +52,28 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 }
 
+func TestTLSPathsResolveAndSignerCAOverrides(t *testing.T) {
+	body := strings.ReplaceAll(valid, "http://", "https://") + "ca = \"signer-2-ca.pem\"\n\n[tls]\ncert = \"coordinator.crt\"\nkey = \"coordinator.key\"\nca = \"signers-ca.pem\"\n"
+	p := write(t, body)
+	c, err := Load(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Dir(p)
+	if c.TLS.Cert != filepath.Join(dir, "coordinator.crt") || c.TLS.CA != filepath.Join(dir, "signers-ca.pem") {
+		t.Errorf("[tls] paths not resolved next to the config: %+v", c.TLS)
+	}
+	if c.Signers[0].CA != "" || c.Signers[1].CA != filepath.Join(dir, "signer-2-ca.pem") {
+		t.Errorf("per-signer ca = %q, %q", c.Signers[0].CA, c.Signers[1].CA)
+	}
+	if _, err := c.ClientTLS(0); err == nil || !strings.Contains(err.Error(), "client certificate") {
+		t.Errorf("missing files should fail clearly, got %v", err)
+	}
+	if none, err := (&Config{Signers: []Signer{{}}}).ClientTLS(0); none != nil || err != nil {
+		t.Errorf("without [tls] there is no TLS config: %v %v", none, err)
+	}
+}
+
 func TestCustomPassphrasePassesThrough(t *testing.T) {
 	c := Config{Network: "Standalone Network ; February 2017"}
 	if c.Passphrase() != c.Network {
@@ -68,6 +90,9 @@ func TestLoadRejects(t *testing.T) {
 		"malformed toml": {"network = ", ""},
 		"bad timeout":    {"session_timeout = \"soon\"\n" + valid, "soon"},
 		"long timeout":   {"session_timeout = \"1h\"\n" + valid, "between 0 and 5m"},
+		"tls over http":  {valid + "\n[tls]\ncert = \"c\"\nkey = \"k\"\nca = \"a\"\n", "is not https://"},
+		"tls incomplete": {strings.ReplaceAll(valid, "http://", "https://") + "\n[tls]\ncert = \"c\"\n", "needs cert, key and ca"},
+		"ca without tls": {valid + "ca = \"x.pem\"\n", "sets ca without [tls]"},
 	} {
 		_, err := Load(write(t, c.body))
 		if err == nil || !strings.Contains(err.Error(), c.want) {

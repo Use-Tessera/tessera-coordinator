@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Mutual TLS to signers: `[tls]` in `coordinator.toml` gives the coordinator's
+  client certificate and key and the CA that issued the signers'
+  certificates, with a per-signer `ca` override. Signer URLs must then be
+  `https://`, and the bearer tokens are still sent.
+
 ## [0.1.0] - 2026-10-07
 
 ### Added

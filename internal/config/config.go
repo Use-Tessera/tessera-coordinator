@@ -2,9 +2,12 @@
 package config
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -14,6 +17,15 @@ import (
 type Signer struct {
 	URL      string `toml:"url"`
 	TokenEnv string `toml:"token_env"`
+	// CA overrides [tls].ca for this signer (PEM).
+	CA string `toml:"ca"`
+}
+
+// TLS is [tls]: mutual TLS to the signers. Files are PEM.
+type TLS struct {
+	Cert string `toml:"cert"` // the coordinator's client certificate chain
+	Key  string `toml:"key"`  // its private key
+	CA   string `toml:"ca"`   // CA certificates that issue the signers' certificates
 }
 
 // Config is coordinator.toml.
@@ -26,6 +38,8 @@ type Config struct {
 	// SessionTimeout bounds one signing session, both rounds included.
 	SessionTimeout Duration `toml:"session_timeout"`
 	Signers        []Signer `toml:"signer"`
+	// TLS, when set, makes every signer connection mutual TLS.
+	TLS *TLS `toml:"tls"`
 }
 
 // Duration is a TOML string such as "20s".
@@ -81,10 +95,57 @@ func Load(path string) (*Config, error) {
 	if c.Listen == "" {
 		c.Listen = "127.0.0.1:7400"
 	}
-	if !filepath.IsAbs(c.AuditLog) {
-		c.AuditLog = filepath.Join(filepath.Dir(path), c.AuditLog)
+	rel := func(p *string) {
+		if *p != "" && !filepath.IsAbs(*p) {
+			*p = filepath.Join(filepath.Dir(path), *p)
+		}
+	}
+	rel(&c.AuditLog)
+	if c.TLS != nil {
+		if c.TLS.Cert == "" || c.TLS.Key == "" || c.TLS.CA == "" {
+			return nil, fmt.Errorf("%s: [tls] needs cert, key and ca", path)
+		}
+		rel(&c.TLS.Cert)
+		rel(&c.TLS.Key)
+		rel(&c.TLS.CA)
+	}
+	for i := range c.Signers {
+		s := &c.Signers[i]
+		rel(&s.CA)
+		switch {
+		case c.TLS != nil && !strings.HasPrefix(s.URL, "https://"):
+			return nil, fmt.Errorf("%s: [tls] is set but signer %s is not https://", path, s.URL)
+		case c.TLS == nil && s.CA != "":
+			return nil, fmt.Errorf("%s: signer %s sets ca without [tls]", path, s.URL)
+		}
 	}
 	return &c, nil
+}
+
+// ClientTLS returns the TLS configuration for signer i: the coordinator's
+// client certificate, and the CA that must have issued the signer's
+// certificate. It is nil when [tls] is not set.
+func (c *Config) ClientTLS(i int) (*tls.Config, error) {
+	if c.TLS == nil {
+		return nil, nil
+	}
+	pair, err := tls.LoadX509KeyPair(c.TLS.Cert, c.TLS.Key)
+	if err != nil {
+		return nil, fmt.Errorf("[tls] client certificate: %w", err)
+	}
+	caFile := c.TLS.CA
+	if c.Signers[i].CA != "" {
+		caFile = c.Signers[i].CA
+	}
+	pem, err := os.ReadFile(caFile) //nolint:gosec // G304: the operator names the CA file
+	if err != nil {
+		return nil, fmt.Errorf("[tls] ca: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return nil, fmt.Errorf("[tls] ca: %s holds no PEM certificate", caFile)
+	}
+	return &tls.Config{Certificates: []tls.Certificate{pair}, RootCAs: pool, MinVersion: tls.VersionTLS12}, nil
 }
 
 // Env reads a required environment variable named by the config.

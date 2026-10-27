@@ -4,6 +4,7 @@ package signer
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -61,6 +62,18 @@ type Client struct {
 // New returns a client with a per-request timeout.
 func New(url, token string) *Client {
 	return &Client{URL: strings.TrimRight(url, "/"), Token: token, HTTP: &http.Client{Timeout: 15 * time.Second}}
+}
+
+// NewTLS returns a client that connects over mutual TLS with cfg: the
+// coordinator's certificate, and the CA it trusts for the signer's.
+func NewTLS(url, token string, cfg *tls.Config) *Client {
+	c := New(url, token)
+	if cfg != nil {
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		tr.TLSClientConfig = cfg
+		c.HTTP.Transport = tr
+	}
+	return c
 }
 
 // Info fetches the signer's identity.

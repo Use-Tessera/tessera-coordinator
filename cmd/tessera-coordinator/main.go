@@ -74,12 +74,16 @@ func setup(ctx context.Context, path string) (*config.Config, *coordinator.Coord
 		return nil, nil, err
 	}
 	var clients []*signer.Client
-	for _, s := range cfg.Signers {
+	for i, s := range cfg.Signers {
 		token, err := config.Env(s.TokenEnv)
 		if err != nil {
 			return nil, nil, fmt.Errorf("signer %s: %w", s.URL, err)
 		}
-		clients = append(clients, signer.New(s.URL, token))
+		tlsCfg, err := cfg.ClientTLS(i)
+		if err != nil {
+			return nil, nil, fmt.Errorf("signer %s: %w", s.URL, err)
+		}
+		clients = append(clients, signer.NewTLS(s.URL, token, tlsCfg))
 	}
 	log, err := audit.Open(cfg.AuditLog)
 	if err != nil {
