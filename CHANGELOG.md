@@ -12,6 +12,10 @@ All notable changes to this project are documented here. The format follows
   client certificate and key and the CA that issued the signers'
   certificates, with a per-signer `ca` override. Signer URLs must then be
   `https://`, and the bearer tokens are still sent.
+- `scripts/agent-demo.sh` and `examples/agent`: an agent with no key buys
+  calls from a paid API (HTTP 402) with authorizations the group signs, on
+  testnet. The signers refuse a prompt-injected transfer and, later, the
+  call that would pass the hourly limit.
 
 ## [0.1.0] - 2026-10-07
 
