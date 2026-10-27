@@ -9,7 +9,7 @@
 # later refuse the call that would pass the hourly limit.
 #
 # Run from the repository root. Needs `tessera` and `tessera-signer` from
-# Use-Tessera/tessera (main or a release with per_hour) on PATH, Go, and
+# Use-Tessera/tessera v0.2.0 or later on PATH (per_hour is new there), Go, and
 # curl. Uses ports 7400, 7401-7403 and 7600.
 set -euo pipefail
 
@@ -34,6 +34,17 @@ fund() {
     sleep 2
   done
   echo "could not fund $1" >&2
+  exit 1
+}
+
+# wait_for URL NAME LOG: wait up to 30 s for URL to answer, else show LOG and stop.
+wait_for() {
+  for _ in $(seq 30); do
+    curl -fsS "$1" >/dev/null 2>&1 && return
+    sleep 1
+  done
+  echo "$2 did not start:" >&2
+  cat "$3" >&2
   exit 1
 }
 
@@ -82,7 +93,8 @@ EOF
   tessera-signer --config "$(winpath "$WORK/signer-$i.toml")" >"$WORK/signer-$i.log" 2>&1 &
   PIDS+=($!)
 done
-sleep 2
+# The coordinator refuses to start until enough signers answer.
+for i in 1 2 3; do wait_for "http://127.0.0.1:740$i/healthz" "signer $i" "$WORK/signer-$i.log"; done
 
 cat >"$WORK/coordinator.toml" <<EOF
 listen = "127.0.0.1:7400"
@@ -96,10 +108,7 @@ EOF
 PIDS+=($!)
 "$WORK/agent$EXE" paywall --inject-at 3 2>"$WORK/paywall.log" &
 PIDS+=($!)
-for _ in $(seq 20); do
-  curl -fsS http://127.0.0.1:7400/healthz >/dev/null 2>&1 && break
-  sleep 1
-done
+wait_for http://127.0.0.1:7400/healthz coordinator "$WORK/coordinator.log"
 
 echo "==> the agent buys reports at 1 XLM each"
 "$WORK/agent$EXE" run --calls 7
