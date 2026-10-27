@@ -36,6 +36,24 @@ jobs:
         with:
           version: latest
 
+  # examples/agent is its own module, so the jobs above don't build it.
+  agent-example:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/agent
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: examples/agent/go.mod
+      - run: go vet ./...
+      - run: go test -race -count=1 ./...
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          working-directory: examples/agent
+
   vulncheck:
     runs-on: ubuntu-latest
     steps:
