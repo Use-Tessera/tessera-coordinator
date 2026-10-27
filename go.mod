@@ -1,10 +1,10 @@
 module github.com/Use-Tessera/tessera-coordinator
 
-go 1.25
+go 1.25.0
 
 require (
 	github.com/BurntSushi/toml v1.6.0
-	github.com/stellar/go-stellar-sdk v0.7.3
+	github.com/stellar/go-stellar-sdk v0.8.0
 )
 
 require (

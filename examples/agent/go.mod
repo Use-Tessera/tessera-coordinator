@@ -1,8 +1,8 @@
 module github.com/Use-Tessera/tessera-coordinator/examples/agent
 
-go 1.25
+go 1.25.0
 
-require github.com/stellar/go-stellar-sdk v0.7.3
+require github.com/stellar/go-stellar-sdk v0.8.0
 
 require (
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -12,5 +12,5 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/stellar/go-xdr v0.0.0-20260806060815-dc590f17552a // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 )
