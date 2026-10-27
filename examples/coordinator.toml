@@ -15,7 +15,16 @@ api_token_env = "TESSERA_API_TOKEN"
 # Longest one signing session may take, both rounds included. Default 20s.
 # session_timeout = "20s"
 
+# Mutual TLS to the signers (PEM files, relative to this file). Signers with
+# [tls] accept only a client certificate from their client CA; the tokens are
+# still required. Every signer url must then be https://.
+# [tls]
+# cert = "coordinator.crt"
+# key = "coordinator.key"
+# ca = "signers-ca.crt"        # issued the signers' certificates
+
 # Every signer of the group. The threshold and account are learned from them.
+# A signer whose certificate comes from another CA sets its own `ca`.
 [[signer]]
 url = "https://signer-1.example.org"
 token_env = "TESSERA_SIGNER_TOKEN_1"
